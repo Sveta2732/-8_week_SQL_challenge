@@ -17,7 +17,7 @@ This case study focuses on analyzing the subscription data to answer business qu
 ## 🛠 SQL Concepts & Functions Used
 This case demonstrates the following SQL skills and techniques used in the Foodie-Fi analysis:
 
-- **Joins** ((`JOIN ... USING`, `JOIN ... ON`)) to combine subscription and plan data  
+- **Joins** (`JOIN ... USING`, `JOIN ... ON`) to combine subscription and plan data  
 - **Window functions** (`LEAD`, `LAG`, `ROW_NUMBER`, `FIRST_VALUE`, `SUM(...) OVER()`) to analyze sequences and order of subscriptions  
 - **CTEs / Recursive CTEs** (`WITH`, `WITH RECURSIVE`) to structure queries and simulate payments over time  
 - **Temporary tables** (`CREATE TEMPORARY TABLE`) — store intermediate results for complex calculations or transformations  
@@ -575,6 +575,7 @@ The Foodie-Fi team wants you to create a new payments table for the year 2020 th
 - upgrades from basic to monthly or pro plans are reduced by the current paid amount in that month and start immediately
 - upgrades from pro monthly to pro annual are paid at the end of the current billing period and also starts at the end of the month period
 -  once a customer churns they will no longer make payments
+
 **Solution:**
 
 This task was the most challenging in the case because it required the use of a recursive CTE, which I had not practiced before.
