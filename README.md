@@ -52,7 +52,7 @@ Each case study is organised in its own folder and contains:
 ## 📌 Case Studies
 
 - 📁 [Case 01 — Danny’s Diner](./case_study1_dannys_diner)
-- 📁 [Case 02 — Pizza Runner](./case_study2_pizza_runner)
+- 📁 [Case 02 — Pizza Runner](./case_study2%20_pizza_runner)
 - 📁 [Case 03 — Foodie-Fi](./case_study3_foodie_fi)
 
 ---

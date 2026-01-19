@@ -21,6 +21,8 @@ The key questions are grouped by topic and ordered from simple to more complex:
 - **E. Bonus DML Challenges**  
   *Example:* How would you modify the database schema and insert data if Pizza Runner expanded the menu with a new pizza type?
 
+![Case Study Design](https://8weeksqlchallenge.com/images/case-study-designs/2.png)
+
 ## 🛠 SQL Concepts & Functions Used
 
 This case demonstrates the following SQL skills and techniques applied to analyze **Pizza Runner** data:
@@ -61,7 +63,7 @@ The case uses several key datasets from the **pizza_runner** database schema, ea
 - **`pizza_toppings`** — provides a lookup of topping IDs to topping names, used to interpret recipe and order customization values.  
 
 ###  Entity Relationship Diagram (ERD)
-![Entity Relationship Diagram](https://github.com/Sveta2732/-8_week_SQL_challenge/blob/59b5928af6c492766c7e8c331263b8cdc798b580/case_study1_dannys_diner/ERD.png?raw=true)
+![Entity Relationship Diagram](https://raw.githubusercontent.com/Sveta2732/-8_week_SQL_challenge/ce1411e1bdab34c69fea12b3af886a2052673b16/case_study2%20_pizza_runner/ERD.png)
 ---
 
 
