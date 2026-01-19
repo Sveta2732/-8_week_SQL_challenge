@@ -75,7 +75,7 @@ The case uses three key datasets from the dannys_diner database:
 
 
 ###  Entity Relationship Diagram (ERD)
-![Entity Relationship Diagram](https://8weeksqlchallenge.com/images/case-study-3-erd.png)
+![Entity Relationship Diagram](https://github.com/Sveta2732/-8_week_SQL_challenge/blob/59b5928af6c492766c7e8c331263b8cdc798b580/case_study1_dannys_diner/ERD.png?raw=true)
 ---
 
 
