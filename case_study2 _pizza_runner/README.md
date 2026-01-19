@@ -483,9 +483,14 @@ Wednesday had the highest number of orders (5), while Saturday, despite having f
 
 **Solution:**
 
-
+- Created an intermediate CTE dates to determine the signup week for each runner
+    - Calculated the week number using the difference between registration_date and the reference start date 2021-01-01, divided into 7-day periods with `DATE_ADD`
+- In the main query, grouped the data by week number
+    - Constructed a readable week interval using `CONCAT` and date arithmetic based on the calculated week number
+    - Counted the number of runners who signed up in each weekly period
 
 ```sql
+
 WITH dates AS (
     SELECT 
         FLOOR((DATE_ADD(registration_date, INTERVAL 1 DAY) - DATE '2021-01-01') / 7) AS week_number,
@@ -508,6 +513,397 @@ GROUP BY
     week_number 
 ORDER BY 
     week_number;
+
+```
+**Output:**
+
+| week_number | week_interval           | number_of_runners |
+| ----------: | ----------------------- | ----------------: |
+|           1 | 2021-01-01 – 2021-01-07 |                 2 |
+|           2 | 2021-01-08 – 2021-01-14 |                 1 |
+|           3 | 2021-01-15 – 2021-01-21 |                 1 |
+
+
+**Insights:**
+
+The majority of runners (2 out of 4) signed up in the first week, indicating stronger initial onboarding activity. Runner sign-ups slowed down in subsequent weeks, with only one new runner per week in weeks 2 and 3.
+
+---
+**Question:** 2. What was the average time in minutes it took for each runner to arrive at the Pizza Runner HQ to pickup the order?
+
+**Solution:**
+- Created a CTE with `DISTINCT` order_id and order_time to count each order only once, avoiding overcounting when a single order has multiple pizzas.
+- Joined the CTE with `runner_orders`.
+- Filtered out cancelled orders
+- Grouped by runners
+- Calculated pickup time using `TIMESTAMPDIFF`
+- Computed the average with `AVG`
+
+```sql
+
+WITH orders AS (
+    SELECT DISTINCT 
+        order_time, 
+        order_id
+    FROM 
+        customer_orders
+)
+
+SELECT 
+    runner_id,
+    ROUND(
+        AVG(TIMESTAMPDIFF(MINUTE, order_time, pickup_time)), 
+        1
+    ) AS average_arriving_time
+FROM 
+    runner_orders 
+JOIN 
+    orders 
+USING (order_id)
+WHERE 
+    cancellation IS NULL
+GROUP BY 
+    runner_id
+ORDER BY 
+    runner_id;
+```
+**Output:**
+
+| runner_id | average_arriving_time |
+| --------- | --------------------- |
+| 1         | 14.0                  |
+| 2         | 19.7                  |
+| 3         | 10.0                  |
+
+
+
+
+**Insights:**
+
+- Runner 3 is the fastest on average, arriving in 10 minutes.
+- Runner 2 has the slowest average pickup time (19.7 minutes), which may indicate longer distances or availability issues.
+- Runner 1 shows moderate performance, arriving in around 14 minutes on average.
+
+---
+**Question:** 3. Is there any relationship between the number of pizzas and how long the order takes to prepare?
+
+**Solution:**
+
+- First query – to show for each order the number of pizzas, total cooking time, and time per pizza
+     - Created a CTE to count the number of pizzas for each order
+    - In the main query, joined with runner_orders and filtered orders where pickup_time is not null (i.e., orders were not cancelled)
+    - Selected for each order: number of pizzas, cooking time using `TIMESTAMPDIFF`, and time per pizza (total cooking time divided by number of pizzas, rounded using `ROUND`)
+
+- Second query – to calculate the average cooking time of pizzas depending on the number of pizzas per order
+    - Used the same CTE as in the first query to count pizzas per order
+    - In the main query, joined with runner_orders and filtered orders where pickup_time is not null
+    - Grouped by pizza_amount and calculated the average cooking time per group using `AVG`, rounded with `ROUND`
+
+```sql
+
+-- first
+WITH pizza_number AS (
+    SELECT 
+        order_id, 
+        order_time, 
+        COUNT(pizza_id) AS pizza_amount
+    FROM 
+        customer_orders
+    GROUP BY 
+        order_id, 
+        order_time
+)
+
+SELECT 
+    order_id, 
+    pizza_amount, 
+    TIMESTAMPDIFF(MINUTE, order_time, pickup_time) AS cooking_time,
+    ROUND(
+        TIMESTAMPDIFF(MINUTE, order_time, pickup_time) / pizza_amount, 
+        1
+    ) AS time_per_pizza
+FROM 
+    runner_orders
+JOIN 
+    pizza_number
+USING (order_id)
+WHERE 
+    pickup_time IS NOT NULL
+ORDER BY pizza_amount, time_per_pizza;
+
+-- second 
+WITH pizza_number AS (
+    SELECT 
+        order_id, 
+        order_time, 
+        COUNT(pizza_id) AS pizza_amount
+    FROM 
+        customer_orders
+    GROUP BY 
+        order_id, 
+        order_time
+)
+
+SELECT 
+    pizza_amount, 
+    ROUND(
+        AVG(TIMESTAMPDIFF(MINUTE, order_time, pickup_time)), 
+        1
+    ) AS average_cooking_time
+FROM 
+    runner_orders
+JOIN 
+    pizza_number
+USING (order_id)
+WHERE 
+    pickup_time IS NOT NULL
+GROUP BY 
+    pizza_amount
+ORDER BY 
+    pizza_amount;
+```
+**Output:**
+
+| order_id | pizza_amount | cooking_time | time_per_pizza |
+| -------- | ------------ | ------------ | -------------- |
+| 1        | 1            | 10           | 10.0           |
+| 2        | 1            | 10           | 10.0           |
+| 5        | 1            | 10           | 10.0           |
+| 7        | 1            | 10           | 10.0           |
+| 8        | 1            | 20           | 20.0           |
+| 10       | 2            | 15           | 7.5            |
+| 3        | 2            | 21           | 10.5           |
+| 4        | 3            | 29           | 9.7            |
+
+| pizza_amount | average_cooking_time |
+| ------------ | ---------------------- |
+| 1            | 12.0                   |
+| 2            | 18.0                   |
+| 3            | 29.0                   |
+
+
+**Insights:**
+
+- In most single-pizza orders, it took 10 minutes to prepare, except for order 8, which took twice as long.
+- For two-pizza orders, preparation time ranged from 15 to 21 minutes (i.e., 7.5 to 10.5 minutes per pizza).
+- For three-pizza orders, it took almost 30 minutes (9.7 minutes per pizza).
+- Orders with more pizzas tend to take longer to prepare overall.
+- On average, a single pizza can be prepared in about 10 minutes, but sometimes it takes more or less (from 7.5 to 20 minutes).
+
+---
+**Question:** 4. What was the average distance travelled for each customer?
+
+**Solution:**
+
+Because one order can contain multiple pizzas and therefore multiple rows, counting each row would overcount the deliveries. To calculate correctly (the runner did not deliver the same order three times if it had three pizzas), I created a CTE to find `DISTINCT` orders and their customers.
+
+In the main query:
+- I joined the result with runner_orders
+- Filtered out cancelled orders
+- Grouped by customers
+- Used `AVG` and `ROUND` to calculate the average distance for each customer
+
+```sql
+WITH customers AS (
+    SELECT DISTINCT 
+        customer_id, 
+        order_id
+    FROM 
+        customer_orders
+)
+
+SELECT 
+    customer_id,
+    ROUND(
+        AVG(distance), 
+        1
+    ) AS average_distance
+FROM 
+    customers
+JOIN 
+    runner_orders
+USING (order_id)
+WHERE 
+    cancellation IS NULL
+GROUP BY 
+    customer_id
+ORDER BY 
+    average_distance;
+```
+**Output:**
+
+| customer_id | average_distance |
+| ----------- | ---------------- |
+| 104         | 10               |
+| 102         | 18.4             |
+| 101         | 20               |
+| 103         | 23.4             |
+| 105         | 25               |
+
+
+**Insights:**
+
+- Customer 105 had the highest average delivery distance.
+- Customer 104 had the lowest average delivery distance.
+- Most customers have an average distance between 18 and 23, showing variation in delivery range.
+
+---
+**Question:** 5. What was the difference between the longest and shortest delivery times for all orders?
+
+**Solution:**
+
+To calculate duration from pickup to delivery:
+- Use `runner_orders`
+- Filter out cancelled orders
+- Find the difference between longest and shortest delivery times using `MAX` and `MIN`
+- Use `CONCAT` to add the word "minutes"
+
+To calculate delivery duration from order placement to delivery:
+- Create a CTE to join customer_orders and runner_orders
+- Calculate the difference between `order_time` and `pickup_time` in minutes, then add duration
+- In the main query, find `MIN`, `MAX`, and their difference
+
+```sql
+-- For runners:
+SELECT 
+    CONCAT(MAX(duration) - MIN(duration), ' minutes') AS delivery_difference
+FROM 
+    runner_orders
+WHERE 
+    duration IS NOT NULL;
+
+-- For customers
+WITH delivery AS (
+    SELECT 
+        TIMESTAMPDIFF(MINUTE, order_time, pickup_time) + duration AS delivery_time
+    FROM 
+        runner_orders 
+    JOIN 
+        customer_orders
+    USING (order_id)
+)
+
+SELECT 
+    MAX(delivery_time) AS max_delivery_time, 
+    MIN(delivery_time) AS min_delivery_time, 
+    MAX(delivery_time) - MIN(delivery_time) AS delivery_difference
+FROM 
+    delivery;
+```
+**Output:**
+
+| delivery_difference |
+| ------------------- |
+| 30 minutes          |
+
+
+| delivery_difference | max_delivery_time | min_delivery_time | delivery_difference |
+| ------------------- | ----------------- | ----------------- | ------------------- |
+| 30 minutes          | 69                | 25                | 44                  |
+
+
+**Insights:**
+
+Runner Duration:
+- The difference between the longest and shortest runner durations is 30 minutes.
+- This measures the time from pickup to delivery.
+- Only uses the duration column, not including order preparation time.
+
+Delivery Duration (Customer Orders):
+- The longest delivery took 69 minutes, the shortest 25 minutes.
+- The difference between the longest and shortest deliveries is 44 minutes.
+- This measures the total delivery time from order placement to delivery.
+- Provides a more accurate picture of delivery times than using runner duration alone.
+
+---
+**Question:** 6. What was the average speed for each runner for each delivery and do you notice any trend for these values?
+
+**Solution:**
+
+To calculate average speed per delivery:
+- Filter orders to include only non-cancelled orders (cancellation `IS NULL`)
+- Group by runner and order to calculate speed for each delivery separately
+- Compute speed as distance / (duration / 60) to convert duration from minutes to hours and get km/h
+
+```sql
+SELECT 
+    runner_id, 
+    order_id, 
+    ROUND(distance / (duration / 60), 1) AS speed
+FROM 
+    runner_orders
+WHERE 
+    duration IS NOT NULL
+ORDER BY 
+    runner_id, speed;
+```
+**Output:**
+
+| runner_id | order_id | speed |
+| --------- | -------- | ----- |
+| 1         | 1        | 37.5  |
+| 1         | 3        | 40.2  |
+| 1         | 2        | 44.4  |
+| 1         | 10       | 60    |
+| 2         | 4        | 35.1  |
+| 2         | 7        | 60    |
+| 2         | 8        | 93.6  |
+| 3         | 5        | 40    |
+
+
+**Insights:**
+
+- Runner speeds vary significantly between deliveries.
+- For Runner 1, speed ranges from 37.5 to 60 km/h.
+- For Runner 2, speed ranges from 35.1 to 93.6 km/h.
+- For both Runner 1 and Runner 2, speed increases with subsequent orders, possibly due to a change in transportation method.
+- Runner 3 has speed of 40 km/h.
+
+---
+**Question:** 7. What is the successful delivery percentage for each runner?
+
+**Solution:**
+
+To calculate the percentage, group by runners:
+- Count the number of non-cancelled orders — take the column containing `NULL` where cancelled orders are marked (for example, duration) and divide by the total number of rows
+- `ROUND` the result and use `CONCAT` to add %
+
+```sql
+SELECT 
+    runner_id,
+    CONCAT(ROUND(COUNT(duration) / COUNT(*) * 100, 0), '%') AS successful_delivery
+FROM 
+    runner_orders
+GROUP BY 
+    runner_id
+ORDER BY 
+    runner_id;
+```
+**Output:**
+
+| runner_id | successful_delivery |
+| --------- | ------------------- |
+| 1         | 100%                |
+| 2         | 75%                 |
+| 3         | 50%                 |
+
+
+**Insights:**
+
+- Runner 1 completed all assigned deliveries successfully.
+
+- Runner 2 successfully delivered 75% of orders.
+
+- Runner 3 had the lowest success rate at 50%.
+
+---
+**Question:** 
+
+**Solution:**
+
+
+
+```sql
 
 ```
 **Output:**

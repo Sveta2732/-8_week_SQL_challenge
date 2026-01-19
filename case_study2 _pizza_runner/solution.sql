@@ -201,3 +201,172 @@ ORDER BY
     week_number;
 
 -- 2 What was the average time in minutes it took for each runner to arrive at the Pizza Runner HQ to pickup the order?
+
+WITH orders AS (
+    SELECT DISTINCT 
+        order_time, 
+        order_id
+    FROM 
+        customer_orders
+)
+
+SELECT 
+    runner_id,
+    ROUND(
+        AVG(TIMESTAMPDIFF(MINUTE, order_time, pickup_time)), 
+        1
+    ) AS average_arriving_time
+FROM 
+    runner_orders 
+JOIN 
+    customer_orders 
+USING (order_id)
+WHERE 
+    cancellation IS NULL
+GROUP BY 
+    runner_id
+ORDER BY 
+    runner_id;
+
+-- 3 Is there any relationship between the number of pizzas and how long the order takes to prepare?
+
+WITH pizza_number AS (
+    SELECT 
+        order_id, 
+        order_time, 
+        COUNT(pizza_id) AS pizza_amount
+    FROM 
+        customer_orders
+    GROUP BY 
+        order_id, 
+        order_time
+)
+
+SELECT 
+    order_id, 
+    pizza_amount, 
+    TIMESTAMPDIFF(MINUTE, order_time, pickup_time) AS cooking_time,
+    ROUND(
+        TIMESTAMPDIFF(MINUTE, order_time, pickup_time) / pizza_amount, 
+        1
+    ) AS time_per_pizza
+FROM 
+    runner_orders
+JOIN 
+    pizza_number
+USING (order_id)
+WHERE 
+    pickup_time IS NOT NULL
+ORDER BY pizza_amount, time_per_pizza;
+
+
+WITH pizza_number AS (
+    SELECT 
+        order_id, 
+        order_time, 
+        COUNT(pizza_id) AS pizza_amount
+    FROM 
+        customer_orders
+    GROUP BY 
+        order_id, 
+        order_time
+)
+
+SELECT 
+    pizza_amount, 
+    ROUND(
+        AVG(TIMESTAMPDIFF(MINUTE, order_time, pickup_time)), 
+        1
+    ) AS average_cooking_time
+FROM 
+    runner_orders
+JOIN 
+    pizza_number
+USING (order_id)
+WHERE 
+    pickup_time IS NOT NULL
+GROUP BY 
+    pizza_amount
+ORDER BY 
+    pizza_amount;
+
+-- 4 What was the average distance travelled for each customer?
+
+WITH customers AS (
+    SELECT DISTINCT 
+        customer_id, 
+        order_id
+    FROM 
+        customer_orders
+)
+
+SELECT 
+    customer_id,
+    ROUND(
+        AVG(distance), 
+        1
+    ) AS average_distance
+FROM 
+    customers
+JOIN 
+    runner_orders
+USING (order_id)
+WHERE 
+    cancellation IS NULL
+GROUP BY 
+    customer_id
+ORDER BY 
+    average_distance;
+
+-- 5 What was the difference between the longest and shortest delivery times for all orders?
+
+-- For runners:
+SELECT 
+    CONCAT(MAX(duration) - MIN(duration), ' minutes') AS delivery_difference
+FROM 
+    runner_orders
+WHERE 
+    duration IS NOT NULL;
+
+-- For customers
+WITH delivery AS (
+    SELECT 
+        TIMESTAMPDIFF(MINUTE, order_time, pickup_time) + duration AS delivery_time
+    FROM 
+        runner_orders 
+    JOIN 
+        customer_orders
+    USING (order_id)
+)
+
+SELECT 
+    MAX(delivery_time) AS max_delivery_time, 
+    MIN(delivery_time) AS min_delivery_time, 
+    MAX(delivery_time) - MIN(delivery_time) AS delivery_difference
+FROM 
+    delivery;
+
+-- 6 What was the average speed for each runner for each delivery and do you notice any trend for these values?
+
+SELECT 
+    runner_id, 
+    order_id, 
+    ROUND(distance / (duration / 60), 1) AS speed
+FROM 
+    runner_orders
+WHERE 
+    duration IS NOT NULL
+ORDER BY 
+    runner_id, speed;
+
+-- 7 What is the successful delivery percentage for each runner?
+
+SELECT 
+    runner_id,
+    CONCAT(ROUND(COUNT(duration) / COUNT(*) * 100, 0), '%') AS successful_delivery
+FROM 
+    runner_orders
+GROUP BY 
+    runner_id
+ORDER BY 
+    runner_id;
