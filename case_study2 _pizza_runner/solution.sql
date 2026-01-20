@@ -370,3 +370,268 @@ GROUP BY
     runner_id
 ORDER BY 
     runner_id;
+
+-- C. Ingredient Optimisation
+-- 1 What are the standard ingredients for each pizza?
+-- 2 What was the most commonly added extra?
+-- 3 What was the most common exclusion?
+-- 4 Generate an order item for each record in the customers_orders table in the format of one of the following:
+-- Meat Lovers
+-- Meat Lovers - Exclude Beef
+-- Meat Lovers - Extra Bacon
+-- Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers
+-- 5 Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients
+-- For example: "Meat Lovers: 2xBacon, Beef, ... , Salami"
+-- 6 What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?
+
+-- 1 What are the standard ingredients for each pizza?
+
+DROP TABLE IF EXISTS pizza_recipes_temp;
+
+CREATE TEMPORARY TABLE pizza_recipes_temp AS
+SELECT 
+    p.pizza_id, 
+    p.toppings, 
+    top.num_toppings
+FROM 
+    pizza_recipes p
+JOIN 
+    JSON_TABLE(
+        REPLACE(JSON_ARRAY(p.toppings), ',', '", "'),
+        '$[*]' COLUMNS (num_toppings VARCHAR(50) PATH '$')
+    ) top;
+
+
+SELECT 
+    t.pizza_id, 
+    (SELECT pizza_name 
+     FROM pizza_names n 
+     WHERE n.pizza_id = t.pizza_id) AS pizza_name,
+    GROUP_CONCAT(p.topping_name ORDER BY p.topping_id) AS ingredients
+FROM 
+    pizza_recipes_temp t
+JOIN 
+    pizza_toppings p
+ON 
+    p.topping_id = t.num_toppings
+GROUP BY 
+    pizza_id
+ORDER BY 
+    pizza_id;
+
+-- 2 What was the most commonly added extra?
+
+-- Create a temporary table for exclusions
+DROP TABLE IF EXISTS customer_orders_excl;
+CREATE TEMPORARY TABLE customer_orders_excl AS
+SELECT p.pizza_number,
+       p.order_id,
+       p.customer_id,
+       p.pizza_id,
+       excl.exclusions_num
+FROM (SELECT *,
+             ROW_NUMBER() OVER() as pizza_number
+      FROM customer_orders) p
+JOIN JSON_TABLE(REPLACE(JSON_ARRAY(p.exclusions), ',', '","'),
+                '$[*]' COLUMNS (exclusions_num VARCHAR(50) PATH '$')) excl;
+
+-- Create a temporary table for extras
+DROP TABLE IF EXISTS customer_orders_ext;
+CREATE TEMPORARY TABLE customer_orders_ext AS
+SELECT p.pizza_number,
+       p.order_id,
+       p.customer_id,
+       p.pizza_id,
+       ext.extras_num
+FROM (SELECT *,
+             ROW_NUMBER() OVER() AS pizza_number
+      FROM customer_orders) p
+JOIN JSON_TABLE(REPLACE(JSON_ARRAY(p.extras), ',', '","'),
+                '$[*]' COLUMNS (extras_num VARCHAR(50) PATH '$')) ext;
+
+-- Main query: find the most commonly added extra
+SELECT extras_num,
+       (SELECT topping_name
+        FROM pizza_toppings t 
+        WHERE t.topping_id = p.extras_num) AS topping_name,
+       COUNT(extras_num) AS used_number
+FROM customer_orders_ext p
+GROUP BY extras_num, topping_name
+ORDER BY used_number DESC
+LIMIT 1;
+
+-- 3 What was the most common exclusion?
+
+SELECT exclusions_num,
+       (SELECT topping_name 
+        FROM pizza_toppings t 
+        WHERE t.topping_id = p.exclusions_num) AS topping_name,
+       COUNT(exclusions_num) AS used_number
+FROM customer_orders_excl p
+GROUP BY exclusions_num, topping_name
+ORDER BY used_number DESC
+LIMIT 1;
+
+-- 4 Generate an order item for each record in the customers_orders table in the format of one of the following:
+-- Meat Lovers
+-- Meat Lovers - Exclude Beef
+-- Meat Lovers - Extra Bacon
+-- Meat Lovers - Exclude Cheese, Bacon - Extra Mushroom, Peppers
+
+WITH customer_orders_number AS
+(
+    SELECT *, 
+           ROW_NUMBER() OVER() as pizza_number,
+           (SELECT pizza_name FROM pizza_names n WHERE n.pizza_id = p.pizza_id) as pizza_name
+    FROM customer_orders p
+),
+customer_exclusions AS
+(
+    SELECT pizza_number, 
+           GROUP_CONCAT((SELECT topping_name FROM pizza_toppings t
+                         WHERE t.topping_id = ex.exclusions_num)
+                        SEPARATOR ', ') as exlusions_g
+    FROM customer_orders_excl ex
+    GROUP BY pizza_number
+),
+customer_extras AS
+(
+    SELECT pizza_number, 
+           GROUP_CONCAT((SELECT topping_name FROM pizza_toppings t
+                         WHERE t.topping_id = ext.extras_num)
+                        SEPARATOR ', ') as extras_g
+    FROM customer_orders_ext ext
+    GROUP BY pizza_number
+)
+SELECT order_id,
+       customer_id,
+       pizza_id,
+       exclusions,
+       extras,
+       order_time, 
+       CASE 
+           WHEN exlusions_g IS NOT NULL AND extras_g IS NOT NULL
+           THEN CONCAT(pizza_name,
+                       ' - Exclude ', 
+                       ex.exlusions_g, 
+                       ' - Extra ',
+                       ext.extras_g)
+           WHEN exlusions_g IS NOT NULL AND extras_g IS NULL
+           THEN CONCAT(pizza_name,
+                       ' - Exclude ', 
+                       ex.exlusions_g)
+           WHEN exlusions_g IS NULL AND extras_g IS NOT NULL
+           THEN CONCAT(pizza_name,
+                       ' - Extra ',
+                       ext.extras_g)
+           ELSE pizza_name
+       END AS order_item
+FROM customer_orders_number p
+JOIN customer_exclusions ex USING(pizza_number)
+JOIN customer_extras ext USING(pizza_number);
+
+-- 5 Generate an alphabetically ordered comma separated ingredient list for each pizza order from the customer_orders table and add a 2x in front of any relevant ingredients
+-- For example: "Meat Lovers: 2xBacon, Beef, ... , Salami"  
+
+-- Create a temporary table accounting for excluded toppings
+DROP TABLE IF EXISTS pizza_ingr_excluded;
+CREATE TEMPORARY TABLE pizza_ingr_excluded AS
+
+WITH excluded_pizza AS
+(
+    SELECT c.pizza_number, order_id, customer_id, pizza_id, 
+           CASE WHEN num_toppings NOT IN (SELECT exclusions_num 
+                                          FROM customer_orders_excl ex
+                                          WHERE c.pizza_number = ex.pizza_number
+                                          AND exclusions_num IS NOT NULL)
+                THEN num_toppings 
+                ELSE NULL END AS num_toppings
+    FROM (SELECT DISTINCT pizza_number, order_id, customer_id, pizza_id
+          FROM customer_orders_ext) c
+    JOIN pizza_recipes_temp p
+    USING(pizza_id)
+)
+ 
+SELECT pizza_number,
+       order_id,
+       customer_id,
+       pizza_id,
+       num_toppings
+FROM excluded_pizza
+WHERE num_toppings IS NOT NULL;
+
+
+-- Create a temporary table combining all ingredients including extras
+DROP TABLE IF EXISTS all_ingr;
+CREATE TEMPORARY TABLE all_ingr AS
+
+SELECT *
+FROM pizza_ingr_excluded
+
+UNION ALL
+
+SELECT pizza_number,
+       order_id,
+       customer_id,
+       pizza_id,
+       extras_num AS num_toppings
+FROM customer_orders_ext 
+WHERE extras_num IS NOT NULL
+    
+ORDER BY pizza_number, num_toppings;
+
+
+-- CTE to add 'x' prefix for multiple toppings and prepare for alphabetical ordering
+WITH all_ingr_str AS
+(
+    SELECT pizza_number,
+           order_id,
+           customer_id,
+           pizza_id,
+           num_toppings,
+           CASE WHEN COUNT(num_toppings) = 1 THEN topping_name
+                ELSE CONCAT (COUNT(num_toppings), 'x', topping_name) END as topping_name,
+           ROW_NUMBER() OVER( ORDER BY topping_name) as top_order
+    FROM all_ingr a
+    JOIN pizza_toppings p
+    ON a.num_toppings = p.topping_id
+    GROUP BY pizza_number, order_id, customer_id, pizza_id, num_toppings, topping_name
+)
+ 
+-- Main query: generate alphabetically ordered, comma-separated ingredient list per pizza order
+SELECT 
+    order_id,
+    customer_id,
+    pizza_id,
+    CONCAT ((SELECT pizza_name FROM pizza_names p 
+             WHERE p.pizza_id = a.pizza_id), ': ',
+            GROUP_CONCAT(topping_name 
+                         ORDER BY top_order SEPARATOR ', ')) as ingredients
+FROM all_ingr_str a
+GROUP BY pizza_number, order_id, customer_id, pizza_id
+ORDER BY order_id, customer_id, pizza_id;
+
+-- 6 What is the total quantity of each ingredient used in all delivered pizzas sorted by most frequent first?
+
+-- Create CTE for successfully delivered orders (filter out cancelled orders)
+WITH delivered_orders AS
+(
+    SELECT order_id
+    FROM runner_orders o
+    WHERE cancellation IS NULL
+)
+
+-- Main query: calculate total quantity of each ingredient used in delivered pizzas
+SELECT 
+    a.num_toppings AS topping_id,
+    t.topping_name,
+    COUNT(a.num_toppings) as topping_quantity
+FROM delivered_orders o
+LEFT JOIN all_ingr a
+USING(order_id)
+JOIN pizza_toppings t
+    ON t.topping_id = a.num_toppings
+GROUP BY a.num_toppings, t.topping_name
+ORDER BY topping_quantity DESC, CAST(a.num_toppings AS SIGNED);
+
+
