@@ -1368,266 +1368,361 @@ This table shows the total quantity of each ingredient used across all successfu
 
 ---
 
-**Question:** 
+### D. Pricing and Ratings
+
+**Question:** 1 If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - how much money has Pizza Runner made so far if there are no delivery fees?
+
 
 **Solution:**
 
-
+- Joined `customer_orders` with `runner_orders`.
+- Filtered only non-cancelled orders.
+- Used `CASE WHEN` to assign price: 12 for Meat Lovers, 10 for Vegetarian.
+- Summed all prices to get total revenue.
+- Used `CONCAT` to append the $ sign.
 
 ```sql
 
+SELECT CONCAT(SUM(
+           CASE 
+               WHEN pizza_id = 1 THEN 12
+               ELSE 10 
+           END), '$') as cost
+FROM runner_orders
+JOIN customer_orders
+USING(order_id)
+WHERE cancellation IS NULL;
 
 
 ```
 **Output:**
 
+| cost |
+| ---- |
+| 138$ |
+
+**Insights:**
+
+Total revenue from all delivered pizzas so far, given Meat Lovers $12, Vegetarian $10, and no extra charges or delivery fees, is 138.
+
+---
+
+**Question:** 2. What if there was an additional $1 charge for any pizza extras?
+
+**Solution:**
+
+The solution is similar to the previous one, but a CTE is added to calculate how many extras there were for each pizza.
+
+CTE:
+- Used the temporary table `customer_orders_ext`.
+- Grouped by pizzas 
+- Counted the number of extras for each pizza.
+
+Main query:
+- Joined with `runner_orders`.
+- Filtered only non-cancelled orders.
+- Used `CASE WHEN` to assign prices: 12 + extras for Meat Lovers, 10 + extras for Vegetarian.
+- Summed all prices to get the total revenue.
+- Used `CONCAT` to append the $ sign.
+
+```sql
+
+WITH extra_count AS
+(
+    SELECT order_id, pizza_id, 
+           COUNT(extras_num) as extras
+    FROM customer_orders_ext
+    GROUP BY pizza_number, order_id, pizza_id
+)
+
+SELECT CONCAT(
+           SUM(
+               CASE 
+                   WHEN pizza_id = 1 THEN 12 + extras
+                   ELSE 10 + extras 
+               END
+           ), '$'
+       ) as cost
+FROM runner_orders
+JOIN extra_count
+USING(order_id)
+WHERE cancellation IS NULL;
+
+```
+**Output:**
+
+| cost |
+| ---- |
+| 142$ |
 
 
 
 **Insights:**
 
+With an additional $1 charge per extra topping, the total revenue from non-cancelled orders increases from $138 to $142.
+
+---
+
+**Question:** 3. The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, how would you design an additional table for this new dataset - generate a schema for this new table and insert your own data for ratings for each successful customer order between 1 to 5.
+
+
+**Solution:**
+
+- Created the ratings table:
+    - added columns for rating_id, order_id, runner_id, customer_id, rating_time (with default current timestamp), and rating_number with a check constraint between 0 and 5.
+- Described the table to verify the table structure.
+
+- Joined `customer_orders` and `runner_orders`.
+
+- Filtered only non-cancelled orders.
+
+- Selected `DISTINCT` `order_id`, `customer_id`, and `runner_id`.
+
+- Used the `RAND()` function to generate a number between 0 and 1, multiplied it by 5, and applied `CEIL()` to get a rating from 0 to 5.
+
+- Inserted these values into the new ratings table.
+
+```sql
+
+DROP TABLE IF EXISTS ratings;
+CREATE TABLE ratings(
+  rating_id INT AUTO_INCREMENT PRIMARY KEY,
+  order_id INT,
+  runner_id INT,
+  customer_id INT,
+  rating_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  rating_number INT CHECK (rating_number BETWEEN 0 AND 5)
+);
+
+DESCRIBE ratings;
+
+INSERT INTO ratings (order_id, runner_id, customer_id, rating_number)
+SELECT DISTINCT order_id, runner_id, customer_id, 
+       CEIL(RAND()*5) as rating_number
+FROM customer_orders
+JOIN runner_orders
+USING(order_id)
+WHERE cancellation IS NULL
+GROUP BY order_id, runner_id, customer_id
+ORDER BY order_id;
+
+SELECT * FROM ratings;
+
+```
+**Output:**
+
+| rating_id | order_id | runner_id | customer_id | rating_time         | rating_number |
+| --------- | -------- | --------- | ----------- | ------------------- | ------------- |
+| 1         | 1        | 1         | 101         | 2026-01-20 06:43:44 | 2             |
+| 2         | 2        | 1         | 101         | 2026-01-20 06:43:44 | 5             |
+| 3         | 3        | 1         | 102         | 2026-01-20 06:43:44 | 4             |
+| 4         | 4        | 2         | 103         | 2026-01-20 06:43:44 | 1             |
+| 5         | 5        | 3         | 104         | 2026-01-20 06:43:44 | 1             |
+| 6         | 7        | 2         | 105         | 2026-01-20 06:43:44 | 4             |
+| 7         | 8        | 2         | 102         | 2026-01-20 06:43:44 | 1             |
+| 8         | 10       | 1         | 104         | 2026-01-20 06:43:44 | 4             |
 
 
 ---
 
-**Question:** 
+**Question:** 4. Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?
+- customer_id
+- order_id
+- runner_id
+- rating
+- order_time
+- pickup_time
+- Time between order and pickup
+- Delivery duration
+- Average speed
+- Total number of pizzas
+
 
 **Solution:**
 
-
+Created two CTEs for preliminary data processing to simplify the main query.
+- The first CTE extracts information from `customer_orders` and calculates the total number of pizzas per order using `GROUP BY` and `COUNT`.
+- The second CTE selects only non-cancelled orders from `runner_orders`.
+- Main query:
+    - Joined the two CTEs with the ratings table.
+    - Selected the necessary columns.
+    - Calculated the time between order and pickup using `TIMESTAMPDIFF`.
+    - Calculated the average speed in km/h using a formula and `ROUND`.
 
 ```sql
 
+WITH customer_orders_cte AS
+(
+    SELECT order_id, customer_id, order_time,
+           COUNT(*) as total_number_of_pizzas
+    FROM customer_orders
+    GROUP BY order_id, customer_id, order_time
+),
+
+runner_orders_cte AS
+(
+    SELECT order_id, runner_id, pickup_time, distance, duration
+    FROM runner_orders
+    WHERE cancellation IS NULL
+)
+
+SELECT c.customer_id, c.order_id, r.runner_id, 
+       rat.rating_number, c.order_time, r.pickup_time, 
+       TIMESTAMPDIFF(MINUTE, c.order_time, r.pickup_time) as time_between_order_pickup,
+       r.duration, 
+       ROUND(r.distance/(r.duration/60),1) as average_speed,
+       c.total_number_of_pizzas
+FROM runner_orders_cte r
+JOIN customer_orders_cte c
+USING(order_id)
+JOIN ratings rat
+USING(order_id);
+
+```
+**Output:**
+
+| customer_id | order_id | runner_id | rating_number | order_time          | pickup_time         | time_between_order_pickup | duration | average_speed | total_number_of_pizzas |
+| ----------- | -------- | --------- | ------------- | ------------------- | ------------------- | ------------------------- | -------- | ------------- | ---------------------- |
+| 101         | 1        | 1         | 1             | 2020-01-01 18:05:02 | 2020-01-01 18:15:34 | 10                        | 32       | 37.5          | 1                      |
+| 101         | 2        | 1         | 3             | 2020-01-01 19:00:52 | 2020-01-01 19:10:54 | 10                        | 27       | 44.4          | 1                      |
+| 102         | 3        | 1         | 2             | 2020-01-02 23:51:23 | 2020-01-03 00:12:37 | 21                        | 20       | 40.2          | 2                      |
+| 103         | 4        | 2         | 3             | 2020-01-04 13:23:46 | 2020-01-04 13:53:03 | 29                        | 40       | 35.1          | 3                      |
+| 104         | 5        | 3         | 3             | 2020-01-08 21:00:29 | 2020-01-08 21:10:57 | 10                        | 15       | 40            | 1                      |
+| 105         | 7        | 2         | 4             | 2020-01-08 21:20:29 | 2020-01-08 21:30:45 | 10                        | 25       | 60            | 1                      |
+| 102         | 8        | 2         | 4             | 2020-01-09 23:54:33 | 2020-01-10 00:15:02 | 20                        | 15       | 93.6          | 1                      |
+| 104         | 10       | 1         | 4             | 2020-01-11 18:34:49 | 2020-01-11 18:50:20 | 15                        | 10       | 60            | 2                      |
+
+
+---
+
+**Question:** 5. If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled - how much money does Pizza Runner have left over after these deliveries?
+
+
+**Solution:**
+
+CTE
+- Calculated the total cost of each order.
+- Assigned a fixed price of $12 for Meat Lovers and $10 for Vegetarian pizzas using `CASE WHEN`.
+- Aggregated pizza prices per order using `SUM`.
+
+Main query
+- Joined the CTE with `runner_orders`.
+- Filtered only non-cancelled orders.
+- Calculated runner salary as distance * 0.3 for each delivery.
+- Summed total pizza revenue and total runner salary.
+- Used `ROUND` to round runner salary.
+- Calculated final revenue by subtracting total runner salary from total pizza cost.
+
+```sql
+
+WITH pizza_price AS (
+    SELECT 
+        order_id,
+        SUM(
+            CASE 
+                WHEN pizza_id = 1 THEN 12
+                ELSE 10 
+            END
+        ) AS pizzas_cost
+    FROM customer_orders
+    GROUP BY order_id
+)
+
+SELECT 
+    SUM(pizzas_cost) AS pizzas_cost,
+    ROUND(SUM(distance * 0.3), 1) AS runner_salary,
+    ROUND(SUM(pizzas_cost - distance * 0.3), 1) AS revenue
+FROM pizza_price
+JOIN runner_orders
+USING (order_id)
+WHERE cancellation IS NULL;
 
 
 ```
 **Output:**
 
-
+| pizzas_cost | runner_salary | revenue |
+| ----------: | ------------: | ------: |
+|         138 |          43.6 |    94.4 |
 
 
 **Insights:**
 
-
+After paying runners $0.30 per kilometre for all successful deliveries, Pizza Runner is left with $94.4 in revenue from $138 total pizza sales.
 
 ---
 
-**Question:** 
+### E. Bonus Questions
+
+**Question:** If Danny wants to expand his range of pizzas - how would this impact the existing data design? Write an INSERT statement to demonstrate what would happen if a new Supreme pizza with all the toppings was added to the Pizza Runner menu?
 
 **Solution:**
 
+I inserted new data for the Supreme pizza into both `pizza_names` and `pizza_recipes`.
 
+- Insert into `pizza_names`
+    - Added a new pizza entry with a new id 3 and the name Supreme pizza.
+- Insert into `pizza_recipes`
+    - Since the Supreme pizza includes all ingredients from `pizza_toppings` except bacon, BBQ sauce, and chicken, I selected all id values from `pizza_toppings` excluding these three.
+    - Used `GROUP_CONCAT` to combine the selected topping IDs into a single comma-separated list.
+    - Inserted this list as the toppings value for the Supreme pizza in pizza_recipes.
 
 ```sql
 
+INSERT INTO pizza_names VALUES
+(3, 'Supreme pizza');
 
+INSERT INTO pizza_recipes VALUES
+(
+    3,
+    (
+        SELECT GROUP_CONCAT(topping_id ORDER BY topping_id)
+        FROM pizza_toppings
+        WHERE topping_id NOT IN (1, 2, 5)
+    )
+);
+
+SELECT *
+FROM pizza_names;
+
+SELECT *
+FROM pizza_recipes;
 
 ```
 **Output:**
 
+| pizza_id | pizza_name    |
+| -------: | ------------- |
+|        1 | Meatlovers    |
+|        2 | Vegetarian    |
+|        3 | Supreme pizza |
+
+| pizza_id | toppings             |
+| -------: | -------------------- |
+|        1 | 1,2,3,4,5,6,8,10     |
+|        2 | 4,6,7,9,11,12        |
+|        3 | 3,4,6,7,8,9,10,11,12 |
 
 
 
 **Insights:**
 
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
+The new Supreme pizza is added without changing the existing data design — only new rows are inserted into `pizza_names` and `pizza_recipes`. This confirms the schema is flexible and easily extensible for adding new pizzas.
 
 ---
 
-**Question:** 
+## 🔹 Overall Summary
 
-**Solution:**
+This case included both straightforward and more complex tasks. Questions **a**, **b**, **d**, and **e** were relatively simple, using standard SQL techniques, while question **C** was longer and more complex, requiring the creation of **temporary tables** and careful handling of multiple transformations.  
 
+### Straightforward methods reinforced:
+- Extensive use of **aggregations** (`SUM`, `COUNT`, `AVG`, `GROUP_CONCAT`) to summarize customer behavior and ingredients usage.  
+- Application of **window functions** (`RANK()`, `DENSE_RANK()`, `ROW_NUMBER()`) to analyze sequences, orderings, and ranking of purchases.  
+- Implementation of **conditional logic** via `CASE WHEN` for prices, extras, exclusions, and calculated columns.  
+- Use of **CTEs / temporary tables** to structure queries clearly and handle complex transformations.  
 
+### New concept learned:
+- **Splitting comma-separated values into rows** using `JSON_ARRAY()` and `JSON_TABLE()`, which allowed transforming values like `1,2,3,4` into multiple rows, with one value per row.  
+- This technique was slightly more challenging and applied specifically to question **C** for handling pizza ingredients, extras, and exclusions.  
 
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
-
-**Question:** 
-
-**Solution:**
-
-
-
-```sql
-
-
-
-```
-**Output:**
-
-
-
-
-**Insights:**
-
-
-
----
+**Overall:** This case strengthened my ability to combine standard SQL methods with newer techniques to solve complex data transformation problems, preparing me for real-world junior data analyst tasks.

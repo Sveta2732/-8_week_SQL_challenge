@@ -634,4 +634,158 @@ JOIN pizza_toppings t
 GROUP BY a.num_toppings, t.topping_name
 ORDER BY topping_quantity DESC, CAST(a.num_toppings AS SIGNED);
 
+-- D. Pricing and Ratings
+-- 1 If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - how much money has Pizza Runner made so far if there are no delivery fees?
+-- 2 What if there was an additional $1 charge for any pizza extras?
+-- Add cheese is $1 extra
+-- 3 The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, how would you design an additional table for this new dataset - generate a schema for this new table and insert your own data for ratings for each successful customer order between 1 to 5.
+-- 4 Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?
+-- customer_id
+-- order_id
+-- runner_id
+-- rating
+-- order_time
+-- pickup_time
+-- Time between order and pickup
+-- Delivery duration
+-- Average speed
+-- Total number of pizzas
+-- 5 If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled - how much money does Pizza Runner have left over after these deliveries?
+
+-- 1 If a Meat Lovers pizza costs $12 and Vegetarian costs $10 and there were no charges for changes - how much money has Pizza Runner made so far if there are no delivery fees?
+
+SELECT CONCAT(SUM(
+           CASE 
+               WHEN pizza_id = 1 THEN 12
+               ELSE 10 
+           END), '$') as cost
+FROM runner_orders
+JOIN customer_orders
+USING(order_id)
+WHERE cancellation IS NULL;
+
+-- 2 What if there was an additional $1 charge for any pizza extras?
+
+WITH extra_count AS
+(
+    SELECT order_id, pizza_id, 
+           COUNT(extras_num) as extras
+    FROM customer_orders_ext
+    GROUP BY pizza_number, order_id, pizza_id
+)
+
+SELECT CONCAT(
+           SUM(
+               CASE 
+                   WHEN pizza_id = 1 THEN 12 + extras
+                   ELSE 10 + extras 
+               END
+           ), '$'
+       ) as cost
+FROM runner_orders
+JOIN extra_count
+USING(order_id)
+WHERE cancellation IS NULL;
+
+-- 3 The Pizza Runner team now wants to add an additional ratings system that allows customers to rate their runner, how would you design an additional table for this new dataset - generate a schema for this new table and insert your own data for ratings for each successful customer order between 1 to 5.
+
+DROP TABLE IF EXISTS ratings;
+CREATE TABLE ratings(
+  rating_id INT AUTO_INCREMENT PRIMARY KEY,
+  order_id INT,
+  runner_id INT,
+  customer_id INT,
+  rating_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  rating_number INT CHECK (rating_number BETWEEN 0 AND 5)
+);
+
+DESCRIBE ratings;
+
+INSERT INTO ratings (order_id, runner_id, customer_id, rating_number)
+SELECT DISTINCT order_id, runner_id, customer_id, 
+       CEIL(RAND()*5) as rating_number
+FROM customer_orders
+JOIN runner_orders
+USING(order_id)
+WHERE cancellation IS NULL
+GROUP BY order_id, runner_id, customer_id
+ORDER BY order_id;
+
+SELECT * FROM ratings;
+
+-- 4 Using your newly generated table - can you join all of the information together to form a table which has the following information for successful deliveries?
+
+WITH customer_orders_cte AS
+(
+    SELECT order_id, customer_id, order_time,
+           COUNT(*) as total_number_of_pizzas
+    FROM customer_orders
+    GROUP BY order_id, customer_id, order_time
+),
+
+runner_orders_cte AS
+(
+    SELECT order_id, runner_id, pickup_time, distance, duration
+    FROM runner_orders
+    WHERE cancellation IS NULL
+)
+
+SELECT c.customer_id, c.order_id, r.runner_id, 
+       rat.rating_number, c.order_time, r.pickup_time, 
+       TIMESTAMPDIFF(MINUTE, c.order_time, r.pickup_time) as time_between_order_pickup,
+       r.duration, 
+       ROUND(r.distance/(r.duration/60),1) as average_speed,
+       c.total_number_of_pizzas
+FROM runner_orders_cte r
+JOIN customer_orders_cte c
+USING(order_id)
+JOIN ratings rat
+USING(order_id);
+
+-- 5 If a Meat Lovers pizza was $12 and Vegetarian $10 fixed prices with no cost for extras and each runner is paid $0.30 per kilometre traveled - how much money does Pizza Runner have left over after these deliveries?
+
+WITH pizza_price AS (
+    SELECT 
+        order_id,
+        SUM(
+            CASE 
+                WHEN pizza_id = 1 THEN 12
+                ELSE 10 
+            END
+        ) AS pizzas_cost
+    FROM customer_orders
+    GROUP BY order_id
+)
+
+SELECT 
+    SUM(pizzas_cost) AS pizzas_cost,
+    ROUND(SUM(distance * 0.3), 1) AS runner_salary,
+    ROUND(SUM(pizzas_cost - distance * 0.3), 1) AS revenue
+FROM pizza_price
+JOIN runner_orders
+USING (order_id)
+WHERE cancellation IS NULL;
+
+-- E. Bonus Questions
+-- If Danny wants to expand his range of pizzas - how would this impact the existing data design? Write an INSERT statement to demonstrate what would happen if a new Supreme pizza with all the toppings was added to the Pizza Runner menu?
+
+INSERT INTO pizza_names VALUES
+(3, 'Supreme pizza');
+
+INSERT INTO pizza_recipes VALUES
+(
+    3,
+    (
+        SELECT GROUP_CONCAT(topping_id ORDER BY topping_id)
+        FROM pizza_toppings
+        WHERE topping_id NOT IN (1, 2, 5)
+    )
+);
+
+SELECT *
+FROM pizza_names;
+
+SELECT *
+FROM pizza_recipes;
+
 
